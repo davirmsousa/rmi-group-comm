@@ -2,7 +2,7 @@ package org.example.implementations.server;
 
 import org.example.Main;
 import org.example.constants.Constants;
-import org.example.helpers.ServerHelper;
+import org.example.helpers.RemoteHelper;
 import org.example.implementations.commom.Message;
 import org.example.implementations.commom.ResultsCollector;
 import org.example.implementations.server.threadRunners.CommandExecutionThreadRunner;
@@ -42,13 +42,13 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         Registry registry = Main.getRegistry();
 
         // pegar a lista de servicos registrados
-        List<String> registryBindedNames = ServerHelper.getServersRegistryBindedName(registry);
+        List<String> registryBindedNames = RemoteHelper.getServersRegistryBindedName(registry);
 
         if (registryBindedNames.isEmpty()) {
             // definir como lider
             this.setLeader(true);
-            // obter o id do grupo
-            this.id = ServerHelper.getNewServerId(registryBindedNames);
+            // obter o id do servidor na lista
+            this.id = RemoteHelper.getNewItemId(registryBindedNames);
             // cria o nome e registrar o servidor
             String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + this.id;
             registry.bind(serverBindName, this);
@@ -58,9 +58,9 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         }
 
         // registrar como pendente
-        List<String> pendingServers = ServerHelper.getPendingServersRegistryBindedName(registry);
-        // obter o id do grupo
-        this.id = ServerHelper.getNewServerId(pendingServers);
+        List<String> pendingServers = RemoteHelper.getPendingServersRegistryBindedName(registry);
+        // obter o id do servidor na lista
+        this.id = RemoteHelper.getNewItemId(pendingServers);
         // cria o nome e registrar o servidor
         String pServerBindName = Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME + this.id;
         registry.bind(pServerBindName, this);
@@ -92,7 +92,7 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         System.out.println("[SERVER | " + this.id +"] coletor adicionado na lista de espera");
 
         // envio da mensagem
-        ServerHelper.sendMessage(message, collector);
+        RemoteHelper.sendMessage(message, collector);
         System.out.println("[SERVER | " + this.id +"] mensagens enviadas");
     }
 
@@ -170,18 +170,19 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
                 System.out.println("[Server | " + this.id + "] new member removed from '" + serverUnbindName + "'");
 
                 // adicionar na lista de servidores
-                newServer.setId(ServerHelper.getNewServerId());
+                newServer.setId(RemoteHelper.getNewRegisteredServerId());
                 String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + newServer.getId();
                 registry.bind(serverBindName, newServer);
                 System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
             }
 
+            // criar a mensagem de resposta
             Message answer = new Message(this.getId(), messageSubject);
             answer.setMessage(Boolean.toString(acceptNewMember));
             answer.setAnsweredMessage(message);
 
             // manda a resposta sem esperar por uma resposta
-            ServerHelper.sendMessage(answer, new ResultsCollector<>());
+            RemoteHelper.sendMessage(answer, new ResultsCollector<>());
 
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -201,6 +202,15 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
 
             System.out.println("[nextCommandRunnable] there is next command: " +
                 (nextCommand == null ? "no" : "yes"));
+
+            Message answer = new Message(this.id, Message.SERVER_RESPONSE_SUBJECT);
+            answer.setRoute(Constants.CLIENT_REGISTY_BOUND_BASE_NAME);
+            answer.setRecipientId(message.getSenderId());
+            answer.setAnsweredMessage(message);
+            answer.setMessage("nao sei como terminou");
+
+            try { RemoteHelper.sendMessage(answer, new ResultsCollector<>()); }
+            catch (RemoteException | NotBoundException ignored) {  }
 
             // se tiver algo para executar, executa
             if (nextCommand != null)

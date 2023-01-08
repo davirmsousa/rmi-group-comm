@@ -4,6 +4,7 @@ import org.example.Main;
 import org.example.constants.Constants;
 import org.example.implementations.commom.Message;
 import org.example.implementations.commom.ResultsCollector;
+import org.example.interfaces.distributed.IDSObject;
 import org.example.interfaces.server.IDSServer;
 
 import java.rmi.NotBoundException;
@@ -15,13 +16,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-public class ServerHelper {
+public class RemoteHelper {
 
-    public static long getNewServerId() throws RemoteException {
-        return getNewServerId(getServersRegistryBindedName());
+    public static long getNewRegisteredServerId() throws RemoteException {
+        return getNewItemId(getServersRegistryBindedName());
     }
 
-    public static long getNewServerId(List<String> bindedServers) {
+    public static long getNewItemId(List<String> bindedServers) {
         if (bindedServers.isEmpty())
             return 0;
 
@@ -29,6 +30,10 @@ public class ServerHelper {
         String[] splitResult = lastBindedServer.split("/");
         String lastServerId = splitResult[splitResult.length - 1];
         return Long.parseLong(lastServerId) + 1;
+    }
+
+    public static List<String> getClientsRegistryBindedName(Registry registry) throws RemoteException {
+        return getRegistryBindedNameByKey(registry, Constants.CLIENT_REGISTY_BOUND_BASE_NAME);
     }
 
     public static List<String> getPendingServersRegistryBindedName() throws RemoteException {
@@ -81,36 +86,38 @@ public class ServerHelper {
         Registry registry = Main.getRegistry();
 
         // pegar o nome dos servidores e remover o emissor da lista
-        List<String> serversBindedNames = Objects.equals(message.getRoute(), Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME) ?
+        List<String> itemsBindedNames = Objects.equals(message.getRoute(), Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME) ?
                 getPendingServersRegistryBindedName(registry) :
-                getServersRegistryBindedName(registry);
+                Objects.equals(message.getRoute(), Constants.CLIENT_REGISTY_BOUND_BASE_NAME) ?
+                    getClientsRegistryBindedName(registry) :
+                    getServersRegistryBindedName(registry);
 
-        serversBindedNames = serversBindedNames.stream().filter(sbn ->
+        itemsBindedNames = itemsBindedNames.stream().filter(sbn ->
                 message.getSenderId() == null || // mensagem de um nao-membro
                 (!sbn.startsWith(message.getFromRoute()) || !sbn.endsWith(message.getSenderId().toString())) && // servidor que nao seja o remetente
                 (message.getRecipientId() == null || sbn.endsWith(message.getRecipientId().toString())) // se informar um destinatario
             )
             .collect(Collectors.toList());
 
-        System.out.println("[Server] enviando mensagem " + message.getSubject() +
-                " para " + serversBindedNames.size() + " servidores");
+        System.out.println("[sendMessage] enviando mensagem " + message.getSubject() +
+                " para " + itemsBindedNames.size() + " objetos");
 
-        collector.setExpectedAmountMessagensToSend(serversBindedNames.size());
+        collector.setExpectedAmountMessagensToSend(itemsBindedNames.size());
         collector.setOriginalMessageId(message.getId());
 
-        for (String serverBindedName : serversBindedNames) {
-            // pegar o objeto remoto do servidor
-            IDSServer recipientServer = (IDSServer) registry.lookup(serverBindedName);
+        for (String itemBindedName : itemsBindedNames) {
+            // pegar o objeto remoto
+            IDSObject recipient = (IDSObject) registry.lookup(itemBindedName);
 
-            System.out.println("[Server] enviando mensagem para destinatario " + recipientServer.getId());
+            System.out.println("[sendMessage] enviando mensagem para destinatario " + recipient.getId());
 
             // clonar a mensagem para setar o recipient
             Message cloneMessage = message.clone();
-            cloneMessage.setRecipientId(recipientServer.getId());
+            cloneMessage.setRecipientId(recipient.getId());
 
             // mandar a mensagem para o servidor
             new Thread(() -> {
-                try { recipientServer.receiveMessage(cloneMessage); }
+                try { recipient.receiveMessage(cloneMessage); }
                 catch (RemoteException ignored) { }
             }).start();
 

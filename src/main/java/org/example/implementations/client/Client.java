@@ -1,21 +1,43 @@
 package org.example.implementations.client;
 
+import org.example.Main;
 import org.example.constants.Constants;
+import org.example.helpers.RemoteHelper;
 import org.example.implementations.commom.Message;
+import org.example.implementations.commom.ResultsCollector;
 import org.example.interfaces.client.IClient;
 import org.example.interfaces.client.IDSClient;
-import org.example.interfaces.coordinator.IClientCoordinator;
 
+import java.rmi.AlreadyBoundException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.UnicastRemoteObject;
+import java.util.List;
 
-public class Client implements IClient, IDSClient {
+public class Client extends UnicastRemoteObject implements IClient, IDSClient {
     private long id;
 
-    public Client(long id) {
-        this.id = id;
+    public Client() throws AlreadyBoundException, RemoteException {
+        this.registerRemotely();
+    }
+
+    private void registerRemotely() throws RemoteException, AlreadyBoundException {
+        Registry registry = Main.getRegistry();
+
+        // pegar a lista de clientes registrados
+        List<String> registryBindedNames = RemoteHelper
+                .getRegistryBindedNameByKey(registry, Constants.CLIENT_REGISTY_BOUND_BASE_NAME);
+        System.out.println("[Client | " + this.id + "] got registered clients list: " + registryBindedNames.size());
+
+        // obter o id do cliente na lista
+        this.id = RemoteHelper.getNewItemId(registryBindedNames);
+        System.out.println("[Client | " + this.id + "] got new id");
+
+        // cria o nome e registrar o servidor
+        String clientBindName = Constants.CLIENT_REGISTY_BOUND_BASE_NAME + this.id;
+        registry.bind(clientBindName, this);
+        System.out.println("[Client | " + this.id + "] client registered in '" + clientBindName + "'");
     }
 
     @Override
@@ -28,35 +50,16 @@ public class Client implements IClient, IDSClient {
         System.out.println("[CLIENT | " + this.id +"] receiveMessage: " + message.getSubject() + " -- " + message.getMessage());
     }
 
-    public static void main(String[] args) throws RemoteException, NotBoundException {
-        System.out.println("[Client|Main] trying to get registry");
-        Registry registry = LocateRegistry.getRegistry(Constants.DEFAULT_PORT);
+    public void handleUserInteraction() throws RemoteException, NotBoundException {
+        Message message = new Message(this.id, Message.CLIENT_REQUEST_SUBJECT);
+        message.setMessage("insert");
+        message.setFromRoute(Constants.CLIENT_REGISTY_BOUND_BASE_NAME);
 
-        System.out.println("[Client|Main] trying to get coordinator");
-        IClientCoordinator clientCoordinator =
-                (IClientCoordinator) registry.lookup(Constants.COORDINATOR_REGISTRY_NAME);
+        RemoteHelper.sendMessage(message, new ResultsCollector<>());
+    }
 
-        /*
-        Client client = new Client(0);
-
-        System.out.println("[Client|Main] sending message 1");
-        clientCoordinator.sendBroadcastMessage(
-            new Message(client.getId(), Message.CLIENT_REQUEST_SUBJECT, "Client Request1")
-        );
-
-        System.out.println("[Client|Main] sending message 2");
-        clientCoordinator.sendBroadcastMessage(
-            new Message(client.getId(), Message.CLIENT_REQUEST_SUBJECT, "Client Request2")
-        );
-
-        System.out.println("[Client|Main] sending message 3");
-        clientCoordinator.sendBroadcastMessage(
-            new Message(client.getId(), Message.CLIENT_REQUEST_SUBJECT, "Client Request3")
-        );
-        */
-
-        System.out.println("[Client|Main] all messages sent");
-
-        while(!Thread.currentThread().isInterrupted());
+    public static void main(String[] args) throws RemoteException, NotBoundException, AlreadyBoundException {
+        Client client = new Client();
+        client.handleUserInteraction();
     }
 }
