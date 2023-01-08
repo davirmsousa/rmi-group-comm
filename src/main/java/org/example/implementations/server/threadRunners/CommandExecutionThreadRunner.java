@@ -1,10 +1,15 @@
 package org.example.implementations.server.threadRunners;
 
+import org.example.helpers.RemoteHelper;
 import org.example.implementations.commom.Message;
+import org.example.implementations.commom.ResultsCollector;
+
+import java.util.Objects;
 
 public class CommandExecutionThreadRunner extends Thread {
     private final Message message;
     private final Runnable nextCommandRunnable;
+    private ResultsCollector<Message> collector;
 
     public CommandExecutionThreadRunner(Message message, Runnable nextCommandRunnable) {
         this.nextCommandRunnable = nextCommandRunnable;
@@ -18,12 +23,31 @@ public class CommandExecutionThreadRunner extends Thread {
         try {
             // abrir uma transacao
             // TODO: usar repositorio para iniciar a transacao
+            System.out.println("[commandExecutionThread | " + this.getId() +"] begin transaction");
 
             // executar a consulta
             // TODO: usar repositorio para rodar o comando
-
-            // iniciar o 3P-Commit
             System.out.println("[commandExecutionThread | " + this.getId() +"] executed command: " + this.message.getMessage());
+
+            Message prepareMessage = new Message(message.getRecipientId(), Message.NODE_PREPARE_REQUEST_SUBJECT);
+
+            collector = new ResultsCollector<>(null, (responses) -> {
+                Boolean allPrepared = responses.stream().allMatch(r ->
+                    Objects.equals(r.getSubject(), Message.NODE_PREPARE_RESPONSE_SUBJECT) &&
+                    Boolean.parseBoolean(r.getMessage())
+                );
+
+                Message reducedMessage = new Message(null, Message.NODE_PREPARE_RESPONSE_SUBJECT);
+                reducedMessage.setMessage(allPrepared.toString());
+
+                return reducedMessage;
+            });
+
+            // mandar a mensagem pros nos
+            RemoteHelper.sendMessage(prepareMessage, collector);
+
+            // esperar que todos tenham respondido
+            while(!collector.isDone()) { Thread.sleep(500); }
 
             /*
             TODO: preciso encontrar um jeito de fazer a thread principal (servidor lider), a que recebe a mensagem, e essa thread se comunicarem
@@ -38,9 +62,12 @@ public class CommandExecutionThreadRunner extends Thread {
 
             // fazer o commit
             // TODO: usar repositorio para fazer o commit
+            System.out.println("[commandExecutionThread | " + this.getId() +"] commited");
         } catch (Exception ignored) {
             // fazer o rollback
             // TODO: usar repositorio para fazer o rollback
+            System.out.println("[commandExecutionThread | " + this.getId() +"] something is wrong, " +
+                "transaction rolled back. " + message.getMessage());
         }
 
         System.out.println("[commandExecutionThread | " + this.getId() +"] calling nextCommandRunnable");

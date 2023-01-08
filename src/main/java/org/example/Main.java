@@ -1,11 +1,13 @@
 package org.example;
 
 import org.example.constants.Constants;
+import org.example.implementations.data.DatabaseContext;
 import org.example.implementations.orchestrator.HealthOrchestrator;
 
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.sql.SQLException;
 
 public class Main {
     private static Registry registry;
@@ -28,6 +30,14 @@ public class Main {
             }
         };
         healthOrchestratorThread.start();
+        System.out.println("[Main] healthOrchestratorThread running");
+
+        try {
+            DatabaseContext context = new DatabaseContext("db1");
+            DatabaseContext context2 = new DatabaseContext("db2");
+        } catch (SQLException e) {
+            System.out.println("[Main] DatabaseContext error " + e.getMessage());
+        }
 
         System.out.println("[Main] running");
         // mantem a thread viva
