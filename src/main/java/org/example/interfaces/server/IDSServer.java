@@ -6,4 +6,5 @@ import java.rmi.RemoteException;
 
 public interface IDSServer extends IDSObject {
     void setLeader(Boolean isLeader) throws RemoteException;
+    void setId(long id) throws RemoteException;
 }

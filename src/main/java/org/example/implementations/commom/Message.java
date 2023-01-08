@@ -1,6 +1,9 @@
 package org.example.implementations.commom;
 
+import org.example.constants.Constants;
+
 import java.io.Serializable;
+import java.util.UUID;
 
 public class Message implements Serializable {
     public static final String CLIENT_REQUEST_SUBJECT = "request";
@@ -11,11 +14,15 @@ public class Message implements Serializable {
     public static final String IGNORED_SUBJECT = "ignored";
     public static final String UNANSWERED_SUBJECT = "unanswered";
 
-    private final String subject;
+    private String fromRoute = Constants.SERVER_REGISTY_BOUND_BASE_NAME;
+    private String route = Constants.SERVER_REGISTY_BOUND_BASE_NAME;
+    private UUID id;
+    private String subject;
     private String message;
-    private final Long senderId;
+    private Long senderId;
+    private Long recipientId;
 
-    private SCompletableFuture<Message> responseChannel;
+    private Message answeredMessage;
 
     public Message(Long senderId, String subject) {
         if (senderId != null && senderId < 0)
@@ -24,15 +31,15 @@ public class Message implements Serializable {
         if (subject == null || subject.trim().equals(""))
             throw new IllegalArgumentException("'subject' eh obrigatorio");
 
+        this.id = UUID.randomUUID();
         this.senderId = senderId;
+        this.recipientId = null;
         this.subject = subject;
         this.message = null;
     }
 
-    public Message(Long senderId, String subject, String message) {
-        this(senderId, subject);
-
-        this.message = message;
+    public UUID getId() {
+        return id;
     }
 
     public String getSubject() {
@@ -43,19 +50,52 @@ public class Message implements Serializable {
         return message;
     }
 
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
     public Long getSenderId() {
         return senderId;
     }
 
-    public void setResponseChannel(SCompletableFuture<Message> responseChannel) {
-        this.responseChannel = responseChannel;
+    public Long getRecipientId() {
+        return recipientId;
     }
 
-    public void reply(Message message) {
-        this.responseChannel.complete(message);
+    public void setRecipientId(Long recipientId) {
+        this.recipientId = recipientId;
+    }
+
+    public Message getAnsweredMessage() {
+        return answeredMessage;
+    }
+
+    public void setAnsweredMessage(Message answeredMessage) {
+        this.answeredMessage = answeredMessage;
+    }
+
+    public String getFromRoute() {
+        return fromRoute;
+    }
+
+    public void setFromRoute(String fromRoute) {
+        this.fromRoute = fromRoute;
+    }
+
+    public String getRoute() {
+        return route;
+    }
+
+    public void setRoute(String route) {
+        this.route = route;
     }
 
     public Message clone() {
-        return new Message(senderId, subject, message);
+        Message clone = new Message(senderId, subject);
+        clone.answeredMessage = answeredMessage;
+        clone.recipientId = recipientId;
+        clone.message = message;
+        clone.id = id;
+        return clone;
     }
 }

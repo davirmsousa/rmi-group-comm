@@ -36,6 +36,7 @@ public class Client implements IClient, IDSClient {
         IClientCoordinator clientCoordinator =
                 (IClientCoordinator) registry.lookup(Constants.COORDINATOR_REGISTRY_NAME);
 
+        /*
         Client client = new Client(0);
 
         System.out.println("[Client|Main] sending message 1");
@@ -52,6 +53,7 @@ public class Client implements IClient, IDSClient {
         clientCoordinator.sendBroadcastMessage(
             new Message(client.getId(), Message.CLIENT_REQUEST_SUBJECT, "Client Request3")
         );
+        */
 
         System.out.println("[Client|Main] all messages sent");
 

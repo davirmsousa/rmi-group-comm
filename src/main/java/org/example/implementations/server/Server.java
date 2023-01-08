@@ -4,7 +4,6 @@ import org.example.Main;
 import org.example.constants.Constants;
 import org.example.helpers.ServerHelper;
 import org.example.implementations.commom.Message;
-import org.example.implementations.commom.MessageSendingConfig;
 import org.example.implementations.commom.ResultsCollector;
 import org.example.implementations.server.threadRunners.CommandExecutionThreadRunner;
 import org.example.interfaces.server.IDSServer;
@@ -21,14 +20,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 
 public class Server extends UnicastRemoteObject implements IServer, IDSServer, Serializable {
     private Long id;
     private Boolean isLeader;
     private final ConcurrentLinkedDeque<Thread> queueCommandsToExecute;
+    private final ConcurrentLinkedQueue<ResultsCollector<Message>> messagesWaitingResponse;
 
     public Server() throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
+        this.messagesWaitingResponse = new ConcurrentLinkedQueue<>();
         this.queueCommandsToExecute = new ConcurrentLinkedDeque<>();
         this.isLeader = false;
         this.id = null;
@@ -36,85 +38,62 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         this.tryJoinGroup();
     }
 
-    private void tryJoinGroup() throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
+    private void tryJoinGroup() throws RemoteException, AlreadyBoundException, NotBoundException {
         Registry registry = Main.getRegistry();
 
         // pegar a lista de servicos registrados
-        List<String> registryBindedNames = ServerHelper.getServersRegistryBindedName();
+        List<String> registryBindedNames = ServerHelper.getServersRegistryBindedName(registry);
 
         if (registryBindedNames.isEmpty()) {
-            // obter o id do grupo
-            this.id = ServerHelper.getNewServerId(registryBindedNames);
-
             // definir como lider
             this.setLeader(true);
-
+            // obter o id do grupo
+            this.id = ServerHelper.getNewServerId(registryBindedNames);
             // cria o nome e registrar o servidor
             String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + this.id;
             registry.bind(serverBindName, this);
-
             System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
 
             return;
         }
 
-        System.out.println("[Server | " + this.id + "] solicitando entrada no grupo");
+        // registrar como pendente
+        List<String> pendingServers = ServerHelper.getPendingServersRegistryBindedName(registry);
+        // obter o id do grupo
+        this.id = ServerHelper.getNewServerId(pendingServers);
+        // cria o nome e registrar o servidor
+        String pServerBindName = Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME + this.id;
+        registry.bind(pServerBindName, this);
+        System.out.println("[Server | " + this.id + "] server registered in '" + pServerBindName + "'");
 
+        System.out.println("[Server | " + this.id + "] solicitando entrada no grupo");
         // mensagem solicitando entrada no grupo
         Message message = new Message(this.id, Message.REQUEST_JOIN_GROUP_SUBJECT);
+        message.setFromRoute(Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME);
 
-        // configuracao de tratamento da msg
-        MessageSendingConfig confg = new MessageSendingConfig()
-            // funcao de contexto que retorna o callback para quando o servidor destinatario
-            // retornar a resposta da mensagem
-            .setWhenMessageComplete((resultCollector) -> {
-                return (result, exeption) -> { // callback de resposta da mensagem
+        ResultsCollector<Message> collector = new ResultsCollector<>((that, response) -> {
+            if (Objects.equals(response.getSubject(), Message.ACCEPT_NEW_MEMBER_SUBJECT)) {
+                that.complete(response);
+                System.out.println("[SERVER | " + this.id +"] coletor foi completo e o servidor foi aceito");
+                this.messagesWaitingResponse.removeIf(c -> c.getOriginalMessageId() == message.getId());
+                System.out.println("[SERVER | " + this.id +"] coletor removido da lista de espera");
+            } else if (Objects.equals(response.getSubject(), Message.REJECT_NEW_MEMBER_SUBJECT)) {
+                that.complete(response);
+                System.out.println("[SERVER | " + this.id +"] coletor foi completo e o servidor foi rejeitado");
+                this.messagesWaitingResponse.removeIf(c -> c.getOriginalMessageId() == message.getId());
+                System.out.println("[SERVER | " + this.id +"] coletor removido da lista de espera");
+            }
 
-                    System.out.println("[Server | " + this.id + "] ack recebido do servidor " + result.getSenderId());
+            return response;
+        }, null);
+        collector.setOriginalMessageId(message.getId());
 
-                    if (exeption != null) {
-                        resultCollector.ackReceived(result, (responses) -> {
-                            // callback caso essa resposta seja aultima em espera
-                            // responsavel por reduzir as repostas em um valor que represente o conjunto
-                            Optional<Message> optLeaderAnswer = responses.stream()
-                                .filter(r ->
-                                    !Objects.equals(r.getSubject(), Message.IGNORED_SUBJECT) && // nao ignorou (sendo um no)
-                                    r.getMessage() != null // tendo resposta, eh do lider
-                                ).findFirst();
-
-                            Message finalResult = optLeaderAnswer.isEmpty() ?
-                                new Message(null, Message.UNANSWERED_SUBJECT) :
-                                optLeaderAnswer.get();
-
-                            System.out.println("[Server | " + this.id + "] todos os acks foram recebidos " + finalResult.getSubject());
-
-                            return finalResult;
-                        });
-                    }
-                };
-            });
-
-        System.out.println("[Server | " + this.id + "] mensagem e config de envio criadas");
+        this.messagesWaitingResponse.add(collector);
+        System.out.println("[SERVER | " + this.id +"] coletor adicionado na lista de espera");
 
         // envio da mensagem
-        ResultsCollector<Message> collector = ServerHelper.sendBroadcastMessage(message, confg);
-
-        System.out.println("[Server | " + this.id + "] mensagem enviada via broadcast");
-
-        Message joinResult = collector.get();
-
-        System.out.println("[Server | " + this.id + "] result obtido: " + joinResult.getSubject());
-
-        if (joinResult.getSubject().equals(Message.ACCEPT_NEW_MEMBER_SUBJECT)) {
-            // obter o id do grupo
-            this.id = ServerHelper.getNewServerId();
-
-            // cria o nome e registrar o servidor
-            String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + this.id;
-            registry.bind(serverBindName, this);
-
-            System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
-        }
+        ServerHelper.sendMessage(message, collector);
+        System.out.println("[SERVER | " + this.id +"] mensagens enviadas");
     }
 
     @Override
@@ -128,7 +107,6 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         System.out.println("[SERVER | " + this.id +"] receiveMessage: shouldIgnoreMessage: " + shouldIgnoreMessage);
 
         if (shouldIgnoreMessage) {
-            message.reply(new Message(this.getId(), Message.IGNORED_SUBJECT));
             return;
         }
 
@@ -138,6 +116,10 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
                 break;
             case Message.CLIENT_REQUEST_SUBJECT:
                 this.handleClientRequestMessage(message);
+                break;
+            case Message.ACCEPT_NEW_MEMBER_SUBJECT:
+            case Message.REJECT_NEW_MEMBER_SUBJECT:
+                this.handleNewMemberResponse(message);
                 break;
             default:
                 break;
@@ -176,10 +158,30 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
                     Message.ACCEPT_NEW_MEMBER_SUBJECT :
                     Message.REJECT_NEW_MEMBER_SUBJECT;
 
-            message.reply(new Message(this.getId(), messageSubject, Boolean.toString(acceptNewMember)));
-
             System.out.println("[SERVER | " + this.id +"] handleJoinGroupRequestMessage: server " +
                     message.getSenderId() + " was accepted (" + acceptNewMember + ")");
+
+            if (acceptNewMember) {
+                // remover da lista pendente
+                Registry registry = Main.getRegistry();
+                String serverUnbindName = Constants.WAITING_SERVER_REGISTY_BOUND_BASE_NAME + message.getSenderId();
+                IDSServer newServer = (IDSServer) registry.lookup(serverUnbindName);
+                registry.unbind(serverUnbindName);
+                System.out.println("[Server | " + this.id + "] new member removed from '" + serverUnbindName + "'");
+
+                // adicionar na lista de servidores
+                newServer.setId(ServerHelper.getNewServerId());
+                String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + newServer.getId();
+                registry.bind(serverBindName, newServer);
+                System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
+            }
+
+            Message answer = new Message(this.getId(), messageSubject);
+            answer.setMessage(Boolean.toString(acceptNewMember));
+            answer.setAnsweredMessage(message);
+
+            // manda a resposta sem esperar por uma resposta
+            ServerHelper.sendMessage(answer, new ResultsCollector<>());
 
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -231,12 +233,40 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         //   pode nao ser chamada
     }
 
+    private void handleNewMemberResponse(Message message) {
+        try {
+            // pegar o coletor dessa mensagem
+            Optional<ResultsCollector<Message>> optCollector = messagesWaitingResponse.stream()
+                    .filter(c -> c.getOriginalMessageId().equals(message.getAnsweredMessage().getId()))
+                    .findFirst();
+
+            System.out.println("[SERVER | " + this.id +"] servidor em espera por resposta? " +
+                optCollector.isPresent());
+
+            // tartar se conseguiu achar o coletor
+            if (optCollector.isEmpty())
+                return;
+
+            // notificar que recebeu uma resposta
+            optCollector.get().ackReceived(message);
+
+            System.out.println("[SERVER | " + this.id +"] coletor notificado");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Override
     public void setLeader(Boolean isLeader) {
         this.isLeader = isLeader;
 
         System.out.println("[SERVER | " + this.id + "] " +
             "setLeader: i'm the new leader? " + isLeader);
+    }
+
+    @Override
+    public void setId(long id) throws RemoteException {
+        this.id = id;
     }
 
     public static void main(String[] args) throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
