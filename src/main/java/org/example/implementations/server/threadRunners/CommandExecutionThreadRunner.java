@@ -23,7 +23,7 @@ public class CommandExecutionThreadRunner extends Thread {
             // TODO: usar repositorio para rodar o comando
 
             // iniciar o 3P-Commit
-            System.out.println("[commandExecutionThread | " + this.getId() +"] executed command: " + this.message.message);
+            System.out.println("[commandExecutionThread | " + this.getId() +"] executed command: " + this.message.getMessage());
 
             /*
             TODO: preciso encontrar um jeito de fazer a thread principal (servidor lider), a que recebe a mensagem, e essa thread se comunicarem
