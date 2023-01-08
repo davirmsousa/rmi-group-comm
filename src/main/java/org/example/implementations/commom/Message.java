@@ -8,7 +8,9 @@ import java.util.UUID;
 public class Message implements Serializable {
     public static final String SERVER_RESPONSE_SUBJECT = "serverResponse";
     public static final String CLIENT_REQUEST_SUBJECT = "clientRequest";
-    public static final String REPLICATE_REQUEST_SUBJECT = "replicate";
+    public static final String NODE_PREPARE_REQUEST_SUBJECT = "nodePrepareRequest";
+    public static final String NODE_PREPARE_RESPONSE_SUBJECT = "nodePrepareResponse";
+    public static final String NODE_COMMIT_REQUEST_SUBJECT = "nodeCommit";
     public static final String ACCEPT_NEW_MEMBER_SUBJECT = "accNewMember";
     public static final String REJECT_NEW_MEMBER_SUBJECT = "regNewMember";
     public static final String REQUEST_JOIN_GROUP_SUBJECT = "joinGroup";

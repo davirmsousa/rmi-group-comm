@@ -121,6 +121,9 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
             case Message.REJECT_NEW_MEMBER_SUBJECT:
                 this.handleNewMemberResponse(message);
                 break;
+            case Message.NODE_PREPARE_RESPONSE_SUBJECT:
+                this.handleNewMemberResponse(message);
+                break;
             default:
                 break;
         }
@@ -130,12 +133,14 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
         // lista de assuntos tratados apenas pelo lider
         List<String> leaderSubjects = Arrays.asList(
             Message.CLIENT_REQUEST_SUBJECT,
-            Message.REQUEST_JOIN_GROUP_SUBJECT
+            Message.REQUEST_JOIN_GROUP_SUBJECT,
+            Message.NODE_PREPARE_RESPONSE_SUBJECT
         );
 
         // lista de assuntos tratados apenas pelos escravos
-        List<String> slaveSubjects = List.of(
-            Message.REPLICATE_REQUEST_SUBJECT
+        List<String> slaveSubjects = Arrays.asList(
+            Message.NODE_COMMIT_REQUEST_SUBJECT,
+            Message.NODE_PREPARE_REQUEST_SUBJECT
         );
 
         boolean subjectOnlyToLeader = leaderSubjects.contains(message.getSubject()) && !this.isLeader;
