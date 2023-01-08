@@ -269,14 +269,43 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
     @Override
     public void setLeader(Boolean isLeader) {
         this.isLeader = isLeader;
+    }
 
-        System.out.println("[SERVER | " + this.id + "] " +
-            "setLeader: i'm the new leader? " + isLeader);
+    @Override
+    public Boolean getIsLeader() throws RemoteException {
+        return this.isLeader;
     }
 
     @Override
     public void setId(long id) throws RemoteException {
         this.id = id;
+        System.out.println("[SERVER | " + this.id +"] im the new leader");
+    }
+
+    @Override
+    public Boolean imHealthy() throws RemoteException {
+        // TODO: validar conexao com o banco ou outras coisas
+        return true;
+    }
+
+    @Override
+    public void removeMember(String unhealthyServerBindedName) throws RemoteException {
+        if (!isLeader) {
+            System.out.println("[SERVER | " + this.id +"] " +
+                "cant remove server, im not the leader");
+            return;
+        }
+
+        try {
+            Registry registry = Main.getRegistry();
+            registry.unbind(unhealthyServerBindedName);
+
+            System.out.println("[SERVER | " + this.id +"] " +
+                "servidor removido: " + unhealthyServerBindedName);
+        } catch (Exception ignore) {
+            System.out.println("[SERVER | " + this.id +"] " +
+                "error ao remover server " + unhealthyServerBindedName);
+        }
     }
 
     public static void main(String[] args) throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {

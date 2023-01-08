@@ -1,6 +1,7 @@
 package org.example;
 
 import org.example.constants.Constants;
+import org.example.implementations.orchestrator.HealthOrchestrator;
 
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -8,10 +9,25 @@ import java.rmi.registry.Registry;
 
 public class Main {
     private static Registry registry;
+    private static Thread healthOrchestratorThread;
 
     public static void main(String[] args) throws RemoteException {
-        // cria o registry logo
+        // cria o registry
         getRegistry();
+
+        // roda o healthcheck
+        healthOrchestratorThread = new Thread() {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        HealthOrchestrator.checkServersHealth();
+                        Thread.sleep(3000);
+                    } catch (RemoteException | InterruptedException ignore) { }
+                }
+            }
+        };
+        healthOrchestratorThread.start();
 
         System.out.println("[Main] running");
         // mantem a thread viva

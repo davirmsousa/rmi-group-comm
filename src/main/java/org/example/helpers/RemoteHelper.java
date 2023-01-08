@@ -10,10 +10,7 @@ import org.example.interfaces.server.IDSServer;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.Registry;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class RemoteHelper {
@@ -63,22 +60,22 @@ public class RemoteHelper {
                 .collect(Collectors.toList());
     }
 
-    public static List<IDSServer> getServers() {
+    public static HashMap<String, IDSServer> getServers() {
         try {
             Registry registry = Main.getRegistry();
             List<String> bindedServers = getServersRegistryBindedName(registry);
 
-            List<IDSServer> servers = new ArrayList<>();
+            HashMap<String, IDSServer> servers = new HashMap<>();
 
             for (String bindServerName : bindedServers) {
                 IDSServer server = (IDSServer) registry.lookup(bindServerName);
-                servers.add(server);
+                servers.put(bindServerName, server);
             }
 
             return servers;
         } catch (RemoteException | NotBoundException ignored) { }
 
-        return new ArrayList<>();
+        return new HashMap<>();
     }
 
     public static void sendMessage(Message message, ResultsCollector<Message> collector)
