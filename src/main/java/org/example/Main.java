@@ -29,7 +29,7 @@ public class Main {
                 }
             }
         };
-        //healthOrchestratorThread.start();
+        healthOrchestratorThread.start();
         System.out.println("[Main] healthOrchestratorThread running");
 
         try {

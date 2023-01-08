@@ -274,6 +274,7 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
     @Override
     public void setLeader(Boolean isLeader) {
         this.isLeader = isLeader;
+        System.out.println("[SERVER | " + this.id +"] im the new leader");
     }
 
     @Override
@@ -284,7 +285,6 @@ public class Server extends UnicastRemoteObject implements IServer, IDSServer, S
     @Override
     public void setId(long id) throws RemoteException {
         this.id = id;
-        System.out.println("[SERVER | " + this.id +"] im the new leader");
     }
 
     @Override

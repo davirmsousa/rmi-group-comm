@@ -16,19 +16,44 @@ public class DatabaseContext {
     }
 
     private void createDatabase(String databaseName) throws SQLException {
-        String sql = "CREATE DATABASE " + databaseName +";";
-        Statement stmt = connection.createStatement();
-        if (!stmt.execute(sql))
-            throw new SQLException("Não foi possível criar o banco de dados");
-
-
-
-        sql = "CREATE TABLE IF NOT EXISTS message (\n"
+        String sql = "CREATE TABLE IF NOT EXISTS message (\n"
                 + "	id integer PRIMARY KEY,\n"
+                + "	sender text NOT NULL,\n"
                 + "	message text NOT NULL\n"
                 + ");";
-        stmt = connection.createStatement();
-        if (!stmt.execute(sql))
-            throw new SQLException("Não foi possível criar o a tabela");
+
+        try {
+            Statement stmt = connection.createStatement();
+            stmt.execute(sql);
+        } catch (SQLException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    public void insert(Connection conn, int id, String sender, String message) {
+        String sql = "INSERT INTO message(id, sender, message) VALUES(?,?,?)";
+
+        try {
+            PreparedStatement pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            pstmt.setString(2, sender);
+            pstmt.setString(2, message);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    public boolean selectAll(Connection conn) throws SQLException {
+        String sql = "SELECT * FROM message";
+
+        try {
+            Statement stmt = conn.createStatement();
+            stmt.executeQuery(sql);
+
+            return true;
+        } catch (SQLException e) {
+            throw e;
+        }
     }
 }
