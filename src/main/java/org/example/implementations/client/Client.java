@@ -10,34 +10,33 @@ import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
-import java.util.UUID;
 
 public class Client implements IClient, IDSClient {
-    private UUID id;
+    private long id;
 
-    public Client() {
-        this.id = UUID.randomUUID();
+    public Client(long id) {
+        this.id = id;
     }
 
     @Override
-    public UUID getId() {
+    public long getId() {
         return this.id;
     }
 
     @Override
     public void receiveMessage(Message message) {
-        System.out.println("[CLIENT | " + this.id +"] receiveMessage: " + message.subject + " -- " + message.message);
+        System.out.println("[CLIENT | " + this.id +"] receiveMessage: " + message.getSubject() + " -- " + message.getMessage());
     }
 
     public static void main(String[] args) throws RemoteException, NotBoundException {
         System.out.println("[Client|Main] trying to get registry");
-        Registry registry = LocateRegistry.getRegistry(Constants.COORDINATOR_REGISTRY_PORT);
+        Registry registry = LocateRegistry.getRegistry(Constants.DEFAULT_PORT);
 
         System.out.println("[Client|Main] trying to get coordinator");
         IClientCoordinator clientCoordinator =
                 (IClientCoordinator) registry.lookup(Constants.COORDINATOR_REGISTRY_NAME);
 
-        Client client = new Client();
+        Client client = new Client(0);
 
         System.out.println("[Client|Main] sending message 1");
         clientCoordinator.sendBroadcastMessage(

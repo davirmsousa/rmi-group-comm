@@ -1,51 +1,138 @@
 package org.example.implementations.server;
 
+import org.example.Main;
 import org.example.constants.Constants;
+import org.example.helpers.ServerHelper;
 import org.example.implementations.commom.Message;
+import org.example.implementations.commom.MessageSendingConfig;
+import org.example.implementations.commom.ResultsCollector;
 import org.example.implementations.server.threadRunners.CommandExecutionThreadRunner;
-import org.example.interfaces.coordinator.IServerCoordinator;
 import org.example.interfaces.server.IDSServer;
 import org.example.interfaces.server.IServer;
 
 import java.io.Serializable;
+import java.rmi.AlreadyBoundException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.UnicastRemoteObject;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ExecutionException;
 
-public class Server implements IServer, IDSServer, Serializable {
-    private final UUID id;
+public class Server extends UnicastRemoteObject implements IServer, IDSServer, Serializable {
+    private Long id;
     private Boolean isLeader;
-    private final IServerCoordinator remoteCoordinator;
     private final ConcurrentLinkedDeque<Thread> queueCommandsToExecute;
 
-    public Server(IServerCoordinator remoteCoordinator) {
+    public Server() throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
         this.queueCommandsToExecute = new ConcurrentLinkedDeque<>();
-        this.remoteCoordinator = remoteCoordinator;
-        this.id = UUID.randomUUID();
         this.isLeader = false;
+        this.id = null;
+
+        this.tryJoinGroup();
+    }
+
+    private void tryJoinGroup() throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
+        Registry registry = Main.getRegistry();
+
+        // pegar a lista de servicos registrados
+        List<String> registryBindedNames = ServerHelper.getServersRegistryBindedName();
+
+        if (registryBindedNames.isEmpty()) {
+            // obter o id do grupo
+            this.id = ServerHelper.getNewServerId(registryBindedNames);
+
+            // definir como lider
+            this.setLeader(true);
+
+            // cria o nome e registrar o servidor
+            String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + this.id;
+            registry.bind(serverBindName, this);
+
+            System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
+
+            return;
+        }
+
+        System.out.println("[Server | " + this.id + "] solicitando entrada no grupo");
+
+        // mensagem solicitando entrada no grupo
+        Message message = new Message(this.id, Message.REQUEST_JOIN_GROUP_SUBJECT);
+
+        // configuracao de tratamento da msg
+        MessageSendingConfig confg = new MessageSendingConfig()
+            // funcao de contexto que retorna o callback para quando o servidor destinatario
+            // retornar a resposta da mensagem
+            .setWhenMessageComplete((resultCollector) -> {
+                return (result, exeption) -> { // callback de resposta da mensagem
+
+                    System.out.println("[Server | " + this.id + "] ack recebido do servidor " + result.getSenderId());
+
+                    if (exeption != null) {
+                        resultCollector.ackReceived(result, (responses) -> {
+                            // callback caso essa resposta seja aultima em espera
+                            // responsavel por reduzir as repostas em um valor que represente o conjunto
+                            Optional<Message> optLeaderAnswer = responses.stream()
+                                .filter(r ->
+                                    !Objects.equals(r.getSubject(), Message.IGNORED_SUBJECT) && // nao ignorou (sendo um no)
+                                    r.getMessage() != null // tendo resposta, eh do lider
+                                ).findFirst();
+
+                            Message finalResult = optLeaderAnswer.isEmpty() ?
+                                new Message(null, Message.UNANSWERED_SUBJECT) :
+                                optLeaderAnswer.get();
+
+                            System.out.println("[Server | " + this.id + "] todos os acks foram recebidos " + finalResult.getSubject());
+
+                            return finalResult;
+                        });
+                    }
+                };
+            });
+
+        System.out.println("[Server | " + this.id + "] mensagem e config de envio criadas");
+
+        // envio da mensagem
+        ResultsCollector<Message> collector = ServerHelper.sendBroadcastMessage(message, confg);
+
+        System.out.println("[Server | " + this.id + "] mensagem enviada via broadcast");
+
+        Message joinResult = collector.get();
+
+        System.out.println("[Server | " + this.id + "] result obtido: " + joinResult.getSubject());
+
+        if (joinResult.getSubject().equals(Message.ACCEPT_NEW_MEMBER_SUBJECT)) {
+            // obter o id do grupo
+            this.id = ServerHelper.getNewServerId();
+
+            // cria o nome e registrar o servidor
+            String serverBindName = Constants.SERVER_REGISTY_BOUND_BASE_NAME + this.id;
+            registry.bind(serverBindName, this);
+
+            System.out.println("[Server | " + this.id + "] server registered in '" + serverBindName + "'");
+        }
     }
 
     @Override
-    public UUID getId() {
-        return this.id;
-    }
+    public long getId() { return this.id; }
 
     @Override
     public void receiveMessage(Message message) {
-        System.out.println("[SERVER | " + this.id +"] receiveMessage: " + message.subject + " -- " + message.message);
+        System.out.println("[SERVER | " + this.id +"] receiveMessage: " + message.getSubject() + " -- " + message.getMessage());
 
         Boolean shouldIgnoreMessage = this.shouldIgnoreMessage(message);
         System.out.println("[SERVER | " + this.id +"] receiveMessage: shouldIgnoreMessage: " + shouldIgnoreMessage);
 
-        if (shouldIgnoreMessage)
+        if (shouldIgnoreMessage) {
+            message.reply(new Message(this.getId(), Message.IGNORED_SUBJECT));
             return;
+        }
 
-        switch (message.subject) {
+        switch (message.getSubject()) {
             case Message.REQUEST_JOIN_GROUP_SUBJECT:
                 this.handleJoinGroupRequestMessage(message);
                 break;
@@ -58,50 +145,50 @@ public class Server implements IServer, IDSServer, Serializable {
     }
 
     private Boolean shouldIgnoreMessage(Message message) {
+        // lista de assuntos tratados apenas pelo lider
         List<String> leaderSubjects = Arrays.asList(
             Message.CLIENT_REQUEST_SUBJECT,
             Message.REQUEST_JOIN_GROUP_SUBJECT
         );
 
-        List<String> slaveSubjects = Arrays.asList(
-            "1", "2"
+        // lista de assuntos tratados apenas pelos escravos
+        List<String> slaveSubjects = List.of(
+            Message.REPLICATE_REQUEST_SUBJECT
         );
 
-        boolean imTheReceiver = message.receiverId == null || message.receiverId.equals(this.id);
-        boolean subjectOnlyToLeader = leaderSubjects.contains(message.subject) && !this.isLeader;
-        boolean subjectOnlyToSlave = slaveSubjects.contains(message.subject) && this.isLeader;
-
-        // ta ignorando até demais aqui
+        boolean subjectOnlyToLeader = leaderSubjects.contains(message.getSubject()) && !this.isLeader;
+        boolean subjectOnlyToSlave = slaveSubjects.contains(message.getSubject()) && this.isLeader;
 
         System.out.println("[SERVER | " + this.id +"] shouldIgnoreMessage: (" +
-            !imTheReceiver + " || " + subjectOnlyToLeader + " || " + subjectOnlyToSlave + ")");
+                subjectOnlyToLeader + " || " + subjectOnlyToSlave + ")");
 
-        return !imTheReceiver || subjectOnlyToLeader || subjectOnlyToSlave;
+        return subjectOnlyToLeader || subjectOnlyToSlave;
     }
 
-    private void handleJoinGroupRequestMessage(Message message) {
+    private synchronized void handleJoinGroupRequestMessage(Message message) {
         boolean acceptNewMember = true;
+
         // TODO: valida o novo membro ...
 
         try {
-            System.out.println("[SERVER | " + this.id +"] handleJoinGroupRequestMessage: server " +
-                message.senderId + " was accepted (" + acceptNewMember + ")");
 
             String messageSubject = acceptNewMember ?
-                Message.ACCEPT_NEW_MEMBER_SUBJECT :
-                Message.REJECT_NEW_MEMBER_SUBJECT;
+                    Message.ACCEPT_NEW_MEMBER_SUBJECT :
+                    Message.REJECT_NEW_MEMBER_SUBJECT;
 
-            this.remoteCoordinator.sendBroadcastMessage(
-                new Message(this.id, messageSubject, message.senderId.toString())
-            );
-        } catch (RemoteException e) {
+            message.reply(new Message(this.getId(), messageSubject, Boolean.toString(acceptNewMember)));
+
+            System.out.println("[SERVER | " + this.id +"] handleJoinGroupRequestMessage: server " +
+                    message.getSenderId() + " was accepted (" + acceptNewMember + ")");
+
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     private void handleClientRequestMessage(Message message) {
         System.out.println("[SERVER | " + this.id +"] handleClientRequestMessage: " +
-            "handling message from client " + message.senderId);
+            "handling message from client " + message.getSenderId());
 
         CommandExecutionThreadRunner nextCommandRunner = new CommandExecutionThreadRunner(message, () -> {
             // remover o comando que acabou de ser executado
@@ -147,22 +234,12 @@ public class Server implements IServer, IDSServer, Serializable {
     @Override
     public void setLeader(Boolean isLeader) {
         this.isLeader = isLeader;
-        System.out.println("[SERVER | " + this.id + "] setLeader: i'm the new leader");
+
+        System.out.println("[SERVER | " + this.id + "] " +
+            "setLeader: i'm the new leader? " + isLeader);
     }
 
-    public static void main(String[] args) throws RemoteException, NotBoundException {
-        System.out.println("[Server|Main] trying to get registry");
-        Registry registry = LocateRegistry.getRegistry(Constants.COORDINATOR_REGISTRY_PORT);
-
-        System.out.println("[Server|Main] trying to get coordinator");
-        IServerCoordinator serverCoordinator =
-                (IServerCoordinator) registry.lookup(Constants.COORDINATOR_REGISTRY_NAME);
-
-        Server server = new Server(serverCoordinator);
-        System.out.println("[Server|Main] registering server " + server.getId());
-        serverCoordinator.registerServer(server);
-        System.out.println("[Server|Main] servers registered");
-
-        while(!Thread.currentThread().isInterrupted());
+    public static void main(String[] args) throws RemoteException, AlreadyBoundException, NotBoundException, ExecutionException, InterruptedException {
+        Server server = new Server();
     }
 }

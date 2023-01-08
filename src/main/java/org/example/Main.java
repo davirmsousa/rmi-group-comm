@@ -2,27 +2,45 @@ package org.example;
 
 import org.example.constants.Constants;
 
-import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 
 public class Main {
-    public static void main(String[] args) {
-        registerServers();
+    private static Registry registry;
+
+    public static void main(String[] args) throws RemoteException {
+        // cria o registry logo
+        getRegistry();
+
+        System.out.println("[Main] running");
+        // mantem a thread viva
+        while(!Thread.currentThread().isInterrupted());
     }
 
-    private static void registerServers() {
-        try {
-            Registry registry = LocateRegistry.getRegistry(Constants.COORDINATOR_REGISTRY_PORT);
+    /**
+     Obtem o registry padrao da aplicacao, criando-o caso nao exista.
 
-            java.rmi.Remote obj = registry.lookup(Constants.COORDINATOR_REGISTRY_NAME);
-            System.out.println(obj.getClass().getCanonicalName());
-            for (java.lang.reflect.AnnotatedType type: obj.getClass().getAnnotatedInterfaces()) {
-                System.out.println(type.getType());
-            }
-        } catch (NotBoundException | RemoteException e) {
-            throw new RuntimeException(e);
+     o registry precisa ficar numa variavel statica para evitar que o
+     GarbageCollector remova-o da memoria, e precisa fica fora do contexto
+     do Servidor pois (1) nao vai ser apenas o servidor quem vai usar e
+     (2) quando o servidor morre o registry morre tambem, assim os demais processos
+     (cliente, outros servidores, orquestrador) nao iriam conseguir pegar o mesmo registry novamente.
+     */
+    public static Registry getRegistry() throws RemoteException {
+        // obtem o registry
+        registry = LocateRegistry.getRegistry(Constants.DEFAULT_PORT);
+
+        try {
+            // testar se o registry existe
+            registry.list();
+            System.out.println("[Main] got existing registry");
+        } catch (RemoteException e) {
+            // nao existindo, cria
+            registry = LocateRegistry.createRegistry(Constants.DEFAULT_PORT);
+            System.out.println("[Main] new registry created");
         }
+
+        return registry;
     }
 }
